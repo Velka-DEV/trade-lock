@@ -4,6 +4,7 @@ import json
 import logging
 import signal
 import warnings
+from collections import defaultdict
 from decimal import Decimal
 from typing import List, Dict
 from steampy.client import SteamClient, Asset
@@ -60,6 +61,20 @@ def parse_cookies(cookies_string):
     return login_cookies
 
 
+def get_tradeupspy_headers() -> Dict[str, str]:
+    return {
+        'Host': 'api.tradeupspy.com',
+        'Connection': 'keep-alive',
+        'Accept': 'application/json, text/plain, */*',
+        'DNT': '1',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+        'Origin': 'https://www.tradeupspy.com',
+        'Referer': 'https://www.tradeupspy.com/',
+        'Accept-Encoding': 'gzip, deflate, br, zstd',
+        'Accept-Language': 'en-GB,en;q=0.9'
+    }
+
+
 class SteamTradeBot:
     def __init__(self, config_path: str):
         with open(config_path, 'r') as f:
@@ -99,66 +114,102 @@ class SteamTradeBot:
             self.place_buy_orders(tradeup_data)
 
     def fetch_tradeup_data(self, api_link: str) -> Dict:
-        headers = {
-            'Host': 'api.tradeupspy.com',
-            'Connection': 'keep-alive',
-            'Accept': 'application/json, text/plain, */*',
-            'DNT': '1',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
-            'Origin': 'https://www.tradeupspy.com',
-            'Referer': 'https://www.tradeupspy.com/',
-            'Accept-Encoding': 'gzip, deflate, br, zstd',
-            'Accept-Language': 'en-GB,en;q=0.9'
-        }
-
         try:
-            response = requests.get(api_link, headers=headers, verify=self.verify_ssl)
+            response = requests.get(api_link, headers=get_tradeupspy_headers(), verify=self.verify_ssl)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
             logging.error(f"Failed to fetch tradeup data: {e}")
             return {}
 
+    def get_interchangeable_items(self, item: Dict, is_stattrak: bool) -> List[Dict]:
+        collection_id = item['collection']['idc']
+        rarity = item['idr']
+        condition = self.get_condition(item['fv'])
+
+        url = f"https://api.tradeupspy.com/api/skins/search/1"
+        params = {
+            "stattrak": str(is_stattrak).lower(),
+            "rarity": rarity,
+            "condition": condition,
+            "collection": collection_id,
+            "skinname": "",
+            "filter": 0
+        }
+
+        try:
+            response = requests.get(url, params=params, headers=get_tradeupspy_headers(), verify=self.verify_ssl)
+            response.raise_for_status()
+            return response.json().get('skinList', [])
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Failed to fetch interchangeable items: {e}")
+            return []
+
+    def get_condition(self, float_value: float) -> str:
+        if float_value < 0.07:
+            return "fn"
+        elif float_value < 0.15:
+            return "mw"
+        elif float_value < 0.38:
+            return "ft"
+        elif float_value < 0.45:
+            return "ww"
+        else:
+            return "bs"
+
     def place_buy_orders(self, tradeup_data: Dict):
+        is_stattrak = tradeup_data['statTrak']
+
+        # Group items by collection and wear condition
+        grouped_items = defaultdict(list)
         for item in tradeup_data['skinList']:
             collection = item['collection']['name']
-            rarity = item['rarity']
-            is_stattrak = tradeup_data['statTrak']
-            max_price = Decimal(str(item['price']))
+            wear_condition = self.get_condition(item['fv'])
+            grouped_items[(collection, wear_condition)].append(item)
 
-            interchangeable_items = self.get_interchangeable_items(tradeup_data, collection, rarity, is_stattrak)
+        for (collection, wear_condition), items in grouped_items.items():
+            # Find the maximum price among all items in this group
+            max_price = max(Decimal(str(item['price'])) for item in items)
 
+            # Get interchangeable items for the first item in the group
+            # (they should be the same for all items with the same collection and wear)
+            interchangeable_items = self.get_interchangeable_items(items[0], is_stattrak)
+
+            highest_buy_order = Decimal('0')
             for interchangeable_item in interchangeable_items:
-                current_highest_buy_order = self.get_highest_buy_order(interchangeable_item)
+                current_buy_order = self.get_highest_buy_order(interchangeable_item['name'])
+                highest_buy_order = max(highest_buy_order, current_buy_order)
 
-                if self.should_place_buy_order(current_highest_buy_order, max_price):
-                    price = current_highest_buy_order  # Place at the same price as the highest buy order
+            if self.should_place_buy_order(highest_buy_order, max_price):
+                price = highest_buy_order  # Place at the same price as the highest buy order
+                quantity = len(items)  # Number of items needed for this collection and wear
+                for interchangeable_item in interchangeable_items:
                     try:
-                        logging.info(f"Placing buy order for {interchangeable_item} at {price}")
-                        continue
+                        logging.info(f"Placing buy order for {quantity} {interchangeable_item['name']} at {price} each")
 
-                        response = self.steam_client.market.create_buy_order(interchangeable_item,
-                                                                             str(int(price * 100)), 10, GameOptions.CS)
+                        continue
+                        response = self.steam_client.market.create_buy_order(
+                            interchangeable_item['name'],
+                            str(int(price * 100)),
+                            quantity,
+                            GameOptions.CS,
+                            country = "FR"
+                        )
                         order_id = response.get('buy_orderid')
                         if order_id:
-                            self.active_buy_orders[order_id] = interchangeable_item
-                            logging.info(f"Placed buy order {order_id} for {interchangeable_item} at {price}")
+                            self.active_buy_orders[order_id] = {
+                                'name': interchangeable_item['name'],
+                                'quantity': quantity,
+                                'price': price
+                            }
+                            logging.info(
+                                f"Placed buy order {order_id} for {quantity} {interchangeable_item['name']} at {price} each")
                     except Exception as e:
-                        logging.error(f"Failed to place buy order for {interchangeable_item}: {e}")
-
-    def get_interchangeable_items(self, tradeup_data: Dict, collection: str, rarity: str, is_stattrak: bool) -> List[
-        str]:
-        interchangeable_items = []
-        for item in tradeup_data['skinList']:
-            if (item['collection']['name'] == collection and
-                    item['rarity'] == rarity and
-                    tradeup_data['statTrak'] == is_stattrak):
-                interchangeable_items.append(item['name'])
-        return interchangeable_items
+                        logging.error(f"Failed to place buy order for {interchangeable_item['name']}: {e}")
 
     def get_highest_buy_order(self, item_name: str) -> Decimal:
         try:
-            item_page = self.steam_client.market.fetch_price(item_name, GameOptions.CS)
+            item_page = self.steam_client.market.fetch_price(item_name, GameOptions.CS, country="FR")
             buy_orders = item_page.get('buy_order_graph', [])
             if buy_orders:
                 return Decimal(str(buy_orders[0][0]))  # Highest buy order price
@@ -208,7 +259,7 @@ class SteamTradeBot:
 
     def calculate_listing_price(self, item_data: Dict) -> Decimal:
         try:
-            market_price = self.steam_client.market.fetch_price(item_data['name'], GameOptions.CS)
+            market_price = self.steam_client.market.fetch_price(item_data['name'], GameOptions.CS, country="FR")
             lowest_price = Decimal(market_price['lowest_price'].split('$')[1])
             return lowest_price - Decimal('0.01')
         except Exception as e:
