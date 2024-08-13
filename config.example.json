@@ -6,5 +6,7 @@
     "check_interval": 300,
     "tradeup_links": [
         "https://www.tradeupspy.com/calculator/share/Trade%20Up%20%232/true/4/0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.1999/877,877,877,877,877,877,877,877,877,877/873,872,874/0.69,0.69,0.69,0.69,0.69,0.69,0.69,0.69,0.69,0.69/12.53,9.98,8.59"
-    ]
+    ],
+    "cache_expiry": 3600,
+    "enable_orders": false
 }
