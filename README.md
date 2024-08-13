@@ -1,5 +1,7 @@
 # TradeLock
 
+![Logo](https://github.com/Velka-DEV/trade-lock/blob/main/resources/logo.png?raw=true)
+
 ![License](https://img.shields.io/github/license/Velka-DEV/trade-lock)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 [![Steam Market Bot](https://img.shields.io/badge/Steam-Market%20Bot-000000?style=flat&logo=steam&logoColor=white)](https://steamcommunity.com/market/)
