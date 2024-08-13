@@ -7,7 +7,7 @@
 [![Steam Market Bot](https://img.shields.io/badge/Steam-Market%20Bot-000000?style=flat&logo=steam&logoColor=white)](https://steamcommunity.com/market/)
 ![CS2](https://img.shields.io/badge/Game-CS2-%23ff9b01?logo=counterstrike&link=https%3A%2F%2Fwww.counter-strike.net%2Fcs2)
 
-TradeLock is an open-source project that aims to create a CS2 Steam market bot. It automates the process of placing buy orders and managing inventory based on trade-up calculations from tradeupspy.com.
+TradeLock is an open-source project that creates a [CS2](https://www.counter-strike.net/cs2) [Steam market](https://steamcommunity.com/market/) bot. It automates the process of placing buy orders and managing inventory based on trade-up calculations from [tradeupspy.com](https://www.tradeupspy.com/). The bot analyzes trade-up opportunities, places strategic buy orders for items with specific float values, and optimizes inventory by identifying items for resale. This automation allows traders to capitalize on market opportunities efficiently, streamlining the CS2 item trading process.
 
 ## Features
 
